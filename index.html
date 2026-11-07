@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+
+  <title>XShare · 原生 X 风格推文截图</title>
+  <meta name="description" content="贴一个 x.com 链接，生成一张按 X 桌面端真实版式还原的推文截图。文字、多图、引用推、串推都在同一张图里。">
+  <meta name="theme-color" content="#1d9bf0">
+
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="XShare · 原生 X 风格推文截图">
+  <meta property="og:description" content="贴链接，出图。文字与所有配图集成在同一张原生 X 风格的卡片里。">
+  <meta property="og:image" content="assets/preview.png">
+
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://api.fxtwitter.com">
+  <link rel="preconnect" href="https://pbs.twimg.com">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar__inner">
+    <a class="brand" href="./">
+      <svg class="brand__mark" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M18.9 2H22l-7.1 8.1L23.2 22h-6.6l-5.2-6.8L5.5 22H2.4l7.6-8.7L1.4 2h6.8l4.7 6.2L18.9 2Zm-1.2 18h1.8L7.1 3.9H5.2L17.7 20Z"/></svg>
+      <span class="brand__word">XShare</span>
+      <span class="brand__tag">Native</span>
+    </a>
+    <span class="pill" data-i18n="masthead">本地渲染 · 不上传</span>
+  </div>
+</header>
+
+<div class="app">
+
+  <main class="main">
+
+    <form class="composer" id="composer" autocomplete="off" novalidate>
+      <label class="composer__label" for="tweet-url" data-i18n="urlLabel">推文链接</label>
+      <div class="composer__field">
+        <svg class="composer__icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
+        <input id="tweet-url" type="text" inputmode="url" spellcheck="false" autocapitalize="off"
+               data-i18n-placeholder="placeholder" placeholder="https://x.com/…">
+        <button class="btn-snap" id="fetch-btn" type="submit">
+          <span class="btn-snap__text" data-i18n="generate">生成</span>
+        </button>
+      </div>
+    </form>
+
+    <p class="composer__hint">
+      <span data-i18n="hintSupports">支持 x.com / twitter.com · 引用 · 串推 · 多图</span>
+      <button class="link-underline" id="example-btn" type="button" data-i18n="tryExample">在线示例</button>
+      <button class="link-underline" id="demo-btn" type="button" data-i18n="tryOffline">离线示例</button>
+    </p>
+
+    <div class="stage" id="stage">
+
+      <div class="empty" id="empty">
+        <div class="empty__card" aria-hidden="true">
+          <div class="empty__avatar"></div>
+          <div class="empty__lines"><i></i><i></i><i></i><b></b></div>
+        </div>
+        <h1 class="empty__title" data-i18n="emptyTitle">把一条推文，还原成一张 X 截图。</h1>
+        <p class="empty__note" data-i18n="emptyNote">贴一个链接，正文和所有配图会排进同一张按 X 桌面端版式绘制的卡片。可以直接下载，或者复制到剪贴板。</p>
+      </div>
+
+      <figure class="plate" id="plate" hidden>
+        <div class="plate__frame">
+          <div id="capture-area" class="capture"></div>
+        </div>
+        <figcaption class="caption" id="caption"></figcaption>
+      </figure>
+
+    </div>
+  </main>
+
+  <aside class="rail" id="rail">
+
+    <section class="group">
+      <h2 class="group__title" data-i18n="themeStyle">主题</h2>
+      <ul class="spec" id="theme-seg">
+        <li><button type="button" data-value="light" aria-pressed="true"><span data-i18n="themeLight">亮色 Light</span><i></i><b>●</b></button></li>
+        <li><button type="button" data-value="dim" aria-pressed="false"><span data-i18n="themeDim">暗蓝 Dim</span><i></i><b>○</b></button></li>
+        <li><button type="button" data-value="black" aria-pressed="false"><span data-i18n="themeBlack">纯黑 Lights out</span><i></i><b>○</b></button></li>
+      </ul>
+    </section>
+
+    <section class="group">
+      <h2 class="group__title" data-i18n="layout">多图布局</h2>
+      <ul class="spec" id="layout-seg">
+        <li><button type="button" data-value="grid" aria-pressed="true"><span data-i18n="grid">网格</span><i></i><b>●</b></button></li>
+        <li><button type="button" data-value="waterfall" aria-pressed="false"><span data-i18n="waterfall">堆叠</span><i></i><b>○</b></button></li>
+      </ul>
+    </section>
+
+    <section class="group">
+      <h2 class="group__title" data-i18n="ratio">卡片比例</h2>
+      <ul class="spec" id="ratio-seg">
+        <li><button type="button" data-value="auto" aria-pressed="true"><span data-i18n="ratioAuto">原始</span><i></i><b>●</b></button></li>
+        <li><button type="button" data-value="3:4" aria-pressed="false"><span>3:4</span><i></i><b>○</b></button></li>
+        <li><button type="button" data-value="9:16" aria-pressed="false"><span>9:16</span><i></i><b>○</b></button></li>
+      </ul>
+    </section>
+
+    <section class="group">
+      <h2 class="group__title" data-i18n="corners">边角</h2>
+      <ul class="spec" id="corners-seg">
+        <li><button type="button" data-value="round" aria-pressed="true"><span data-i18n="cornersRound">圆角 16px</span><i></i><b>●</b></button></li>
+        <li><button type="button" data-value="square" aria-pressed="false"><span data-i18n="cornersSquare">直角</span><i></i><b>○</b></button></li>
+      </ul>
+    </section>
+
+    <section class="group">
+      <h2 class="group__title" data-i18n="quality">导出尺寸</h2>
+      <ul class="spec" id="quality-seg">
+        <li><button type="button" data-value="1" aria-pressed="false"><span>1× · 598px</span><i></i><b>○</b></button></li>
+        <li><button type="button" data-value="2" aria-pressed="true"><span>2× · 1196px</span><i></i><b>●</b></button></li>
+        <li><button type="button" data-value="3" aria-pressed="false"><span>3× · 1794px</span><i></i><b>○</b></button></li>
+        <li><button type="button" data-value="4" aria-pressed="false"><span>4× · 2392px</span><i></i><b>○</b></button></li>
+      </ul>
+    </section>
+
+    <section class="group">
+      <h2 class="group__title" data-i18n="options">选项</h2>
+      <ul class="spec" id="opt-list">
+        <li><label><span data-i18n="showStats">互动数据</span><i></i>
+          <input type="checkbox" id="opt-stats" checked><b></b></label></li>
+        <li><label><span data-i18n="showTimestamp">完整时间戳</span><i></i>
+          <input type="checkbox" id="opt-timestamp"><b></b></label></li>
+        <li><label><span data-i18n="showChrome">Grok / ⋯ 菜单</span><i></i>
+          <input type="checkbox" id="opt-chrome"><b></b></label></li>
+        <li><label><span data-i18n="showWatermark">显示水印</span><i></i>
+          <input type="checkbox" id="opt-watermark"><b></b></label></li>
+      </ul>
+    </section>
+
+    <section class="group group--actions">
+      <button class="btn-solid" id="download-btn" type="button" data-i18n="download">下载 PNG</button>
+      <button class="btn-line" id="copy-btn" type="button" data-i18n="copy">复制图片</button>
+      <p class="group__foot" data-i18n="kbdHint">⌘/Ctrl + S 也能下载</p>
+    </section>
+
+  </aside>
+</div>
+
+<footer class="colophon">
+  <span>XShare</span>
+  <span class="colophon__sep">·</span>
+  <span data-i18n="footerNote">版式参考 X 桌面端 · 生成图非真实截图</span>
+  <span class="colophon__sep">·</span>
+  <a href="https://github.com/springculture/XShare" target="_blank" rel="noopener" data-i18n="viewSource">源码与鸣谢</a>
+</footer>
+
+<div id="toast-container" class="toasts" role="status" aria-live="polite"></div>
+
+<!-- ======================================================================
+     Card template. Structure mirrors an X desktop timeline post:
+     40px avatar rail, 514px content column, identity on one line,
+     media with 16px corners, action bar below.
+     ====================================================================== -->
+<template id="tpl-card">
+  <article class="card">
+    <div class="card__context" hidden></div>
+
+    <div class="card__grid">
+      <div class="card__rail">
+        <img class="card__avatar" alt="" loading="eager" decoding="async">
+      </div>
+
+      <div class="card__body">
+
+        <header class="card__head">
+          <div class="card__ident">
+            <span class="card__name"></span>
+            <span class="card__badge" hidden>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#1d9bf0" d="M22.25 12c0-1.43-.88-2.67-2.19-3.34.46-1.39.2-2.9-.81-3.91s-2.52-1.27-3.91-.81C14.67 2.63 13.43 1.75 12 1.75s-2.67.88-3.34 2.19c-1.39-.46-2.9-.2-3.91.81s-1.27 2.52-.81 3.91c-1.31.67-2.19 1.91-2.19 3.34s.88 2.67 2.19 3.34c-.46 1.39-.2 2.9.81 3.91s2.52 1.27 3.91.81c.67 1.31 1.91 2.19 3.34 2.19s2.67-.88 3.34-2.19c1.39.46 2.9.2 3.91-.81s1.27-2.52.81-3.91c1.31-.67 2.19-1.91 2.19-3.34zm-11.71 4.2L6.8 12.46l1.41-1.42 2.26 2.26 4.8-5.23 1.47 1.36-6.2 6.77z"/></svg>
+            </span>
+            <span class="card__handle"></span>
+            <span class="card__sep">·</span>
+            <span class="card__time"></span>
+          </div>
+          <div class="card__chrome" aria-hidden="true">
+            <span class="card__grok"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M8 15.2 12 8.8l4 6.4M9.6 13.2h4.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span class="card__more"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.7" fill="currentColor"/><circle cx="12" cy="12" r="1.7" fill="currentColor"/><circle cx="19" cy="12" r="1.7" fill="currentColor"/></svg></span>
+          </div>
+        </header>
+
+        <p class="card__text"></p>
+
+        <div class="card__quote" hidden>
+          <header class="card__quote-head">
+            <img class="card__quote-avatar" alt="" loading="eager" decoding="async">
+            <span class="card__quote-name"></span>
+            <span class="card__quote-handle"></span>
+            <span class="card__quote-sep">·</span>
+            <span class="card__quote-time"></span>
+          </header>
+          <p class="card__quote-text"></p>
+          <div class="card__quote-media"></div>
+        </div>
+
+        <div class="card__media"></div>
+
+        <div class="card__timestamp" hidden></div>
+
+        <footer class="card__stats">
+          <span class="stat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 11.5a8.4 8.4 0 0 1-8.5 8.4 9 9 0 0 1-3.8-.8L3.5 20.5l1.4-4.7a8.4 8.4 0 0 1-.9-3.8 8.4 8.4 0 0 1 8.4-8.4h.5a8.4 8.4 0 0 1 7.6 7.9Z"/></svg><b class="stat-replies"></b></span>
+          <span class="stat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m16.5 3 3.5 3.5-3.5 3.5"/><path d="M20 6.5H8a4 4 0 0 0-4 4V12"/><path d="m7.5 21-3.5-3.5 3.5-3.5"/><path d="M4 17.5h12a4 4 0 0 0 4-4V12"/></svg><b class="stat-retweets"></b></span>
+          <span class="stat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 5.6a5.4 5.4 0 0 0-7.7 0L12 6.7l-1.1-1.1a5.4 5.4 0 0 0-7.7 7.7L12 21.1l8.8-7.8a5.4 5.4 0 0 0 0-7.7Z"/></svg><b class="stat-likes"></b></span>
+          <span class="stat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V11"/><path d="M9.5 20V4"/><path d="M15 20v-6"/><path d="M20.5 20V8"/></svg><b class="stat-views"></b></span>
+          <span class="stat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5h12a1 1 0 0 1 1 1V20l-7-4.5L5 20V4.5a1 1 0 0 1 1-1Z"/></svg><b class="stat-bookmarks"></b></span>
+          <span class="stat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15.5V3.5"/><path d="m7.5 8 4.5-4.5L16.5 8"/><path d="M5 13.5v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5"/></svg><b class="stat-shares"></b></span>
+        </footer>
+
+      </div>
+    </div>
+  </article>
+</template>
+
+<script src="assets/vendor/html2canvas-pro.min.js"></script>
+<script src="assets/i18n.js" defer></script>
+<script src="assets/main.js" defer></script>
+</body>
+</html>

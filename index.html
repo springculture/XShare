@@ -88,10 +88,11 @@
     <section class="group">
       <h2 class="group__title" data-i18n="layout">多图布局</h2>
       <ul class="spec" id="layout-seg">
-        <li><button type="button" data-value="auto" aria-pressed="true"><span data-i18n="layoutAuto">自动 · 长图完整</span><i></i><b>●</b></button></li>
-        <li><button type="button" data-value="grid" aria-pressed="false"><span data-i18n="grid">网格 · 原生裁切</span><i></i><b>○</b></button></li>
-        <li><button type="button" data-value="stack" aria-pressed="false"><span data-i18n="stack">堆叠 · 全部完整</span><i></i><b>○</b></button></li>
+        <li><button type="button" data-value="auto" aria-pressed="true"><span data-i18n="layoutAuto">自动 · 遇长图展开</span><i></i><b>●</b></button></li>
+        <li><button type="button" data-value="grid" aria-pressed="false"><span data-i18n="grid">强制网格 · 一律裁切</span><i></i><b>○</b></button></li>
+        <li><button type="button" data-value="stack" aria-pressed="false"><span data-i18n="stack">强制纵向 · 一律完整</span><i></i><b>○</b></button></li>
       </ul>
+      <p class="group__hint" data-i18n="layoutHint">自动 = 检测到长图（高宽比 ≥ 2）时等同「强制纵向」，否则等同「强制网格」；单图始终完整。</p>
     </section>
 
     <section class="group">

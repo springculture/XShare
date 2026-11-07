@@ -9,7 +9,12 @@
 ## 能做什么
 
 - 还原 X 桌面端卡片：598px 正文栏、40px 圆头像、名称 / 认证标识 / @handle / 时间同一行、16px 圆角配图
-- 1–4 张配图的网格 / 堆叠布局、视频封面、引用推（含引用推自己的配图）、串推「显示上一条」
+- 1–4 张配图、视频封面、引用推（含引用推自己的配图）、串推「显示上一条」
+- **长图完整显示**：三种多图布局可切换
+  - `自动`（默认）— 普通图走 X 原生网格；一旦某张图高宽比 ≥ 2，整组自动改为纵向完整排列，不裁切
+  - `网格` — 始终保持 X 原生网格，长图按原生方式裁切
+  - `堆叠` — 所有图片都按原始比例完整展开
+  - 图片按 `contain` 等比绘制，超长图不会被截掉底部；引用推内的长图会等比缩小到 900px 高以保持嵌套卡片紧凑，仍完整不裁切
 - 三档主题：亮色 `#FFFFFF`、暗蓝 Dim `#15202B`、纯黑 `#000000`
 - 导出透明背景 PNG，1× / 2× / 3× / 4×（2× = 1196px 宽）；可复制到剪贴板，⌘/Ctrl + S 也能下载
 - 3:4 / 9:16 竖版、直角模式、完整时间戳、Grok / ⋯ 菜单、互动数据、水印等开关
@@ -33,11 +38,14 @@ node serve.js 8080
 | `?url=<推文链接>` | 打开即生成 |
 | `?demo=1` | 载入离线示例 |
 | `?theme=light` / `?theme=dim` / `?theme=black` | 指定主题 |
+| `?layout=auto` / `?layout=grid` / `?layout=stack` | 多图布局（旧值 `waterfall` 等同 `stack`） |
 | `?ratio=3:4` / `?ratio=9:16` | 竖版比例 |
 | `?corners=square` | 直角卡片 |
 | `?proxy=<编码后的前缀>` | 更换图片代理前缀（仅本次生效）；`?proxy=none` 关闭代理回退 |
 
-脚本接口：`window.XShare.generate(url)`、`render()`、`download()`、`copyImage()`、`loadDemo()`、`setTheme()`、`setRatio()`、`setCorners()`、`setProxy()` / `getProxy()`。
+脚本接口：`window.XShare.generate(url)`、`render()`、`download()`、`copyImage()`、`loadDemo()`、`setTheme()`、`setLayout()`、`setRatio()`、`setCorners()`、`setProxy()` / `getProxy()`。
+
+长图会让卡片变得很高。导出时会按画布上限（边长 14000px / 面积 6000 万像素）自动下调倍率，避免浏览器拒绝创建 canvas；此时页面会给出提示。若需要固定倍率，可换用 `堆叠` 之外的布局或降低导出尺寸。
 
 ## 部署
 

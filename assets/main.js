@@ -8,7 +8,7 @@
 
    html2canvas-pro constraints that shape this file:
    · no `gap` on flex containers        -> margins
-   · no `object-fit`                    -> images cropped by hand in coverCell()
+   · no `object-fit`                    -> cover/contain computed by hand
    · no tiled CSS gradients             -> plain colours only
    · corners live on individual cells  -> parent overflow clipping stays simple
    ========================================================================== */
@@ -23,6 +23,14 @@
   const DEFAULT_PROXY = 'https://api.allorigins.win/raw?url=';
   let PROXY = DEFAULT_PROXY;
   const EXAMPLE = 'https://x.com/elonmusk/status/1949938925163962634';
+
+  /* An image taller than 2× its width is treated as a "long" image: in Auto
+     mode the whole media block switches to an uncropped vertical stack so the
+     bottom of that image is never cut off. */
+  const LONG_RATIO = 2;
+  const QUOTE_FIT_MAX = 900;      // quoted cards are kept reasonably compact
+  const MAX_CANVAS_EDGE = 14000;  // Chrome refuses canvases above ~16384px
+  const MAX_CANVAS_AREA = 60e6;   // and also caps total pixels
 
   /* X's three real themes. Values taken from the desktop client. */
   const THEMES = {
@@ -43,7 +51,7 @@
   const state = {
     lang: 'zh',
     theme: 'light',
-    layout: 'grid',
+    layout: 'auto',
     ratio: 'auto',
     corners: 'round',
     quality: 2,
@@ -218,8 +226,10 @@
     img.src = src;
   }
 
-  /* html2canvas has no object-fit, so "cover" is a hand-computed size+offset. */
-  function coverCell(src, cw, ch, mr, mb, intrinsic) {
+  /* html2canvas has no object-fit, so both modes are computed as explicit px:
+     · cover   — fills the cell, crops the overflow (native X grid)
+     · contain — fits the whole image, never crops (long images)            */
+  function makeCell(src, cw, ch, mr, mb, intrinsic, mode) {
     const cell = document.createElement('div');
     cell.style.cssText =
       'position:relative;flex:0 0 auto;overflow:hidden;' +
@@ -230,23 +240,41 @@
     img.alt = '';
     img.decoding = 'async';
 
-    const iw = intrinsic && intrinsic.width ? intrinsic.width : 0;
-    const ih = intrinsic && intrinsic.height ? intrinsic.height : 0;
-
-    if (iw && ih) {
-      const scale = Math.max(cw / iw, ch / ih);
-      const w = Math.round(iw * scale);
-      const h = Math.round(ih * scale);
+    const place = (iw, ih) => {
+      if (!iw || !ih) return;
+      const scale = mode === 'contain'
+        ? Math.min(cw / iw, ch / ih)
+        : Math.max(cw / iw, ch / ih);
+      const w = Math.max(1, Math.round(iw * scale));
+      const h = Math.max(1, Math.round(ih * scale));
       img.style.cssText =
         'position:absolute;max-width:none;max-height:none;display:block;' +
         `width:${w}px;height:${h}px;left:${Math.round((cw - w) / 2)}px;top:${Math.round((ch - h) / 2)}px`;
-    } else {
-      img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;';
-    }
+    };
+
+    const iw = intrinsic && intrinsic.width ? intrinsic.width : 0;
+    const ih = intrinsic && intrinsic.height ? intrinsic.height : 0;
+    if (iw && ih) place(iw, ih);
+    else img.style.cssText =
+      `position:absolute;inset:0;width:100%;height:100%;display:block;object-fit:${mode}`;
+
+    /* API dimensions are usually right — re-measure on load so a wrong value
+       can never leave an image cropped or letterboxed by accident. */
+    img.addEventListener('load', () => {
+      if (img.naturalWidth && img.naturalHeight) place(img.naturalWidth, img.naturalHeight);
+    });
 
     loadImage(img, src);
     cell.appendChild(img);
     return cell;
+  }
+
+  function coverCell(src, cw, ch, mr, mb, intrinsic) {
+    return makeCell(src, cw, ch, mr, mb, intrinsic, 'cover');
+  }
+
+  function containCell(src, cw, ch, mr, mb, intrinsic) {
+    return makeCell(src, cw, ch, mr, mb, intrinsic, 'contain');
   }
 
   /* Only the outer corners of a grid are rounded — just like X. */
@@ -272,6 +300,31 @@
     return out;
   }
 
+  function ratioOf(it) {
+    return it.width && it.height ? it.height / it.width : 0.56;
+  }
+
+  /* "waterfall" stays as an alias so older links and scripts keep working. */
+  function layoutMode() {
+    if (state.layout === 'waterfall') return 'stack';
+    if (state.layout === 'auto' || state.layout === 'grid' || state.layout === 'stack') return state.layout;
+    return 'auto';
+  }
+
+  /* Uncropped vertical stack: every image keeps its full aspect ratio.
+     maxH > 0 caps the box height; an even taller image is letterboxed (still
+     complete, just smaller) — used for quoted posts so they stay compact. */
+  function renderFullStack(items, wrap, W, maxH) {
+    items.forEach((it, i) => {
+      const natural = Math.round(W * ratioOf(it));
+      const h = Math.max(60, maxH ? Math.min(natural, maxH) : natural);
+      const last = i === items.length - 1;
+      const c = containCell(it.src, W, h, 0, last ? 0 : 2, it);
+      roundCell(c, [1, 1, 1, 1]);
+      wrap.appendChild(c);
+    });
+  }
+
   function renderMedia(media, wrap, opts) {
     wrap.innerHTML = '';
     const items = mediaItems(media);
@@ -289,27 +342,37 @@
     }
     wrap.__measureTries = 0;
 
+    const mode = layoutMode();
+    const hasLong = items.some((it) => ratioOf(it) >= LONG_RATIO);
+    const full = mode === 'stack' || (mode === 'auto' && hasLong);
+
     if (options.quote) {
-      const it = items[0];
-      const ratio = it.width && it.height ? it.height / it.width : 0.56;
-      const h = Math.max(60, Math.min(Math.round(W * ratio), 260));
-      const c = coverCell(it.src, W, h, 0, 0, it);
-      const R = state.corners === 'square' ? 0 : 12;
-      c.style.borderRadius = R + 'px';
-      wrap.appendChild(c);
+      if (full) {
+        renderFullStack(items, wrap, W, QUOTE_FIT_MAX);
+      } else {
+        const it = items[0];
+        const h = Math.max(60, Math.min(Math.round(W * ratioOf(it)), 260));
+        const c = coverCell(it.src, W, h, 0, 0, it);
+        const R = state.corners === 'square' ? 0 : 12;
+        c.style.borderRadius = R + 'px';
+        wrap.appendChild(c);
+      }
       return;
     }
 
-    if (state.layout === 'waterfall' || items.length === 1) {
-      const list = state.layout === 'waterfall' ? items : items.slice(0, 1);
-      list.forEach((it, i) => {
-        const ratio = it.width && it.height ? it.height / it.width : 0.56;
-        const cap = list.length === 1 ? 510 : 600;
-        const h = Math.max(110, Math.min(Math.round(W * ratio), cap));
-        const c = coverCell(it.src, W, h, 0, i === list.length - 1 ? 0 : 4, it);
-        roundCell(c, [1, 1, 1, 1]);
-        wrap.appendChild(c);
-      });
+    /* Auto mode also gives a single normal image its full aspect ratio instead
+       of cropping it to X's 510px cap. Grid mode keeps the native behaviour. */
+    if (full || (mode === 'auto' && items.length === 1)) {
+      renderFullStack(items, wrap, W, 0);
+      return;
+    }
+
+    if (items.length === 1) {
+      const it = items[0];
+      const h = Math.max(110, Math.min(Math.round(W * ratioOf(it)), 510));
+      const c = coverCell(it.src, W, h, 0, 0, it);
+      roundCell(c, [1, 1, 1, 1]);
+      wrap.appendChild(c);
       return;
     }
 
@@ -617,7 +680,7 @@
           { url: demoPhoto(800, 600, '#2f6db5', '01'), width: 800, height: 600 },
           { url: demoPhoto(800, 600, '#1a8f8a', '02'), width: 800, height: 600 },
           { url: demoPhoto(800, 600, '#c15b8a', '03'), width: 800, height: 600 },
-          { url: demoPhoto(800, 600, '#d98a34', '04'), width: 800, height: 600 }
+          { url: demoPhoto(600, 1800, '#d98a34', '04 LONG'), width: 600, height: 1800 }
         ]
       },
       quote: {
@@ -661,12 +724,22 @@
     dom.capture.classList.add('is-capturing');
     applyRatio();
 
+    /* Uncropped long images can make the card very tall. Chrome refuses
+       canvases beyond ~16384px per side / ~268M pixels, so dial the export
+       scale down just enough instead of failing or clipping the image. */
+    const contentW = dom.capture.clientWidth || 598;
+    const contentH = dom.capture.scrollHeight || contentW;
+    const byEdge = MAX_CANVAS_EDGE / Math.max(contentW, contentH);
+    const byArea = Math.sqrt(MAX_CANVAS_AREA / Math.max(contentW * contentH, 1));
+    const scale = Math.max(0.25, Math.min(state.quality, byEdge, byArea));
+    if (scale < state.quality - 0.01) toast(t('toastScale'), 'info');
+
     try {
       if (document.fonts && document.fonts.ready) await document.fonts.ready;
       await nextFrame();
       await nextFrame();
       return await html2canvas(dom.capture, {
-        scale: state.quality,
+        scale,
         useCORS: true,
         allowTaint: false,
         backgroundColor: null,
@@ -930,6 +1003,13 @@
         applyThemeAll();
       },
       setRatio: (v) => { state.ratio = v; dom.ratioSync(v); applyRatio(); },
+      setLayout: (v) => {
+        const map = { auto: 'auto', grid: 'grid', stack: 'stack', waterfall: 'stack' };
+        state.layout = map[v] || 'auto';
+        dom.layoutSync(state.layout);
+        refreshAllMedia();
+        return state.layout;
+      },
       setCorners: (v) => { state.corners = v; dom.cornersSync(v); refreshFlags(); refreshAllMedia(); },
       setProxy: (v, persist = true) => {
         PROXY = (!v || v === 'none') ? '' : String(v);
@@ -951,6 +1031,7 @@
     } catch (e) { /* storage blocked */ }
     if (q.has('proxy')) window.XShare.setProxy(q.get('proxy'), false);
     if (q.get('theme') && THEMES[q.get('theme')]) window.XShare.setTheme(q.get('theme'));
+    if (q.get('layout')) window.XShare.setLayout(q.get('layout'));
     if (q.get('ratio') && q.get('ratio') !== 'auto') window.XShare.setRatio(q.get('ratio'));
     if (q.get('corners') === 'square') window.XShare.setCorners('square');
     const deep = q.get('url');

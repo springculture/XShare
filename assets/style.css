@@ -365,6 +365,48 @@ ul { list-style: none; margin: 0; padding: 0; }
 }
 .card__text a, .card__text .mention, .card__text .hashtag, .card__text .url { color: var(--c-blue); }
 
+/* translation — the button is a live control (ignored by html2canvas),
+   the block under it is part of the card and IS exported. */
+.card__translate {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: -5px 0 10px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--c-blue);
+}
+.card__translate svg { width: 15px; height: 15px; display: block; flex: 0 0 auto; }
+.card__translate span:hover { text-decoration: underline; }
+.card__translate[disabled] { opacity: 0.55; cursor: default; }
+.card__translate[disabled] span:hover { text-decoration: none; }
+.card__translate[hidden], .card__translation[hidden] { display: none; }
+
+.card__translation {
+  border-top: 1px solid var(--c-line);
+  margin: -2px 0 12px;
+  padding: 8px 0 0;
+}
+.card__translation-label {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--c-muted);
+  margin-bottom: 3px;
+}
+.card__translation-text {
+  font-size: 15px;
+  line-height: 20px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--c-fg);
+  margin: 0;
+}
+
 /* quoted post */
 .card__quote {
   border: 1px solid var(--c-edge);
@@ -386,6 +428,11 @@ ul { list-style: none; margin: 0; padding: 0; }
   color: var(--c-fg);
   margin: 4px 0 0;
 }
+.card__quote .card__translate { margin: 2px 0 8px; font-size: 12px; line-height: 16px; }
+.card__quote .card__translate svg { width: 13px; height: 13px; }
+.card__quote .card__translation { margin-bottom: 0; padding-top: 7px; }
+.card__quote .card__translation-label { font-size: 11px; line-height: 15px; }
+.card__quote .card__translation-text { font-size: 14px; line-height: 19px; }
 .card__quote-media { display: flex; flex-wrap: wrap; margin-top: 10px; }
 
 /* media — the grid is a flex-wrap container; each cell carries its own corners.

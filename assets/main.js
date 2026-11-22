@@ -24,6 +24,25 @@
   let PROXY = DEFAULT_PROXY;
   const EXAMPLE = 'https://x.com/elonmusk/status/1949938925163962634';
 
+  /* Translation is opt-in and runs in the browser: no server, no API key.
+     MyMemory is anonymous and CORS-enabled (5k chars/day per IP); Google's
+     undocumented endpoint is only a fallback. Text is sent only on click. */
+  const MYMEMORY = 'https://api.mymemory.translated.net/get';
+  const GOOGLE_TRANSLATE = 'https://translate.googleapis.com/translate_a/single?client=gtx';
+  const TRANSLATE_LIMIT = 450;    // MyMemory rejects q values above ~500 bytes
+  const LANG_NAMES = {
+    en: ['English', '英语'], zh: ['Chinese', '中文'], ja: ['Japanese', '日语'],
+    ko: ['Korean', '韩语'], fr: ['French', '法语'], de: ['German', '德语'],
+    es: ['Spanish', '西班牙语'], pt: ['Portuguese', '葡萄牙语'],
+    it: ['Italian', '意大利语'], ru: ['Russian', '俄语'], ar: ['Arabic', '阿拉伯语'],
+    hi: ['Hindi', '印地语'], th: ['Thai', '泰语'], vi: ['Vietnamese', '越南语'],
+    id: ['Indonesian', '印尼语'], nl: ['Dutch', '荷兰语'], tr: ['Turkish', '土耳其语'],
+    pl: ['Polish', '波兰语'], sv: ['Swedish', '瑞典语'], da: ['Danish', '丹麦语'],
+    fi: ['Finnish', '芬兰语'], no: ['Norwegian', '挪威语'], cs: ['Czech', '捷克语'],
+    el: ['Greek', '希腊语'], he: ['Hebrew', '希伯来语'], hu: ['Hungarian', '匈牙利语'],
+    ro: ['Romanian', '罗马尼亚语'], uk: ['Ukrainian', '乌克兰语']
+  };
+
   /* An image taller than 2× its width is treated as a "long" image: in Auto
      mode the whole media block switches to an uncropped vertical stack so the
      bottom of that image is never cut off. */
@@ -59,12 +78,14 @@
     timestamp: false,
     chrome: false,
     watermark: false,
+    autoTranslate: false,
     root: null
   };
 
   const dom = {};
   let proxyNotified = false;
   let watermarkEl = null;
+  const translateCache = new Map();
 
   /* ── helpers ──────────────────────────────────────────────────────────── */
 
@@ -72,6 +93,159 @@
   const t = (k) => (i18n[state.lang] && i18n[state.lang][k]) || i18n.en[k] || k;
   const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
   const isZh = () => state.lang === 'zh';
+
+  /* ── language detection & translation ────────────────────────────────── */
+
+  const targetLang = () => (state.lang === 'zh' ? 'zh' : 'en');
+  const apiLang = (code) => (code === 'zh' ? 'zh-CN' : code);
+
+  function normalizeLang(code) {
+    let c = String(code || '').toLowerCase().replace(/_/g, '-').split('-')[0].trim();
+    if (c === 'iw') c = 'he';
+    if (c === 'in') c = 'id';
+    if (c === 'ji') c = 'yi';
+    if (c === 'und' || c === 'zxx' || c === 'mul') c = '';
+    return c;
+  }
+
+  /* FxTwitter nearly always supplies `lang`; guess from the script when it
+     doesn't, so a missing field doesn't silently hide the translate button. */
+  function guessLang(text) {
+    const s = String(text || '');
+    if (/[\u3040-\u30ff]/.test(s)) return 'ja';
+    if (/[\uac00-\ud7af]/.test(s)) return 'ko';
+    if (/[\u4e00-\u9fff]/.test(s)) return 'zh';
+    if (/[\u0400-\u04ff]/.test(s)) return 'ru';
+    if (/[\u0600-\u06ff]/.test(s)) return 'ar';
+    if (/[\u0900-\u097f]/.test(s)) return 'hi';
+    if (/[\u0e00-\u0e7f]/.test(s)) return 'th';
+    if (/[\u0590-\u05ff]/.test(s)) return 'he';
+    return 'en';
+  }
+
+  function detectLang(text, declared) {
+    return normalizeLang(declared) || guessLang(text);
+  }
+
+  function langName(code) {
+    const pair = LANG_NAMES[normalizeLang(code)];
+    return pair ? pair[isZh() ? 1 : 0] : String(code || '').toUpperCase();
+  }
+
+  function decodeEntities(s) {
+    const area = document.createElement('textarea');
+    area.innerHTML = String(s);
+    return area.value;
+  }
+
+  function byteLength(s) {
+    if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(s).length;
+    return unescape(encodeURIComponent(s)).length;
+  }
+
+  /* MyMemory caps q at ~500 bytes. Keep newlines intact and break long lines
+     at a nearby punctuation mark where possible. */
+  function splitForTranslation(text) {
+    const out = [];
+    String(text || '').split(/(\n+)/).forEach((part) => {
+      if (!part) return;
+      if (/^\n+$/.test(part) || byteLength(part) <= TRANSLATE_LIMIT) {
+        out.push(part);
+        return;
+      }
+      let buf = '';
+      let bytes = 0;
+      for (const ch of part) {
+        const b = byteLength(ch);
+        if (bytes + b > TRANSLATE_LIMIT && buf) {
+          let cut = -1;
+          for (let i = buf.length - 1; i >= Math.max(0, buf.length - 70); i--) {
+            if (/[\s.,!?;:。！？，、；：）\]】」』]/.test(buf[i])) { cut = i + 1; break; }
+          }
+          if (cut <= 0) cut = buf.length;
+          out.push(buf.slice(0, cut));
+          buf = buf.slice(cut);
+          bytes = byteLength(buf);
+        }
+        buf += ch;
+        bytes += b;
+      }
+      if (buf) out.push(buf);
+    });
+    return out;
+  }
+
+  function cacheKey(from, to, text) {
+    let h = 2166136261;
+    for (let i = 0; i < text.length; i++) {
+      h ^= text.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return from + '|' + to + '|' + text.length + '|' + (h >>> 0).toString(36);
+  }
+
+  function readCache(key) {
+    let hit = translateCache.get(key);
+    if (hit) return hit;
+    try {
+      const raw = localStorage.getItem('xshare-tr-' + key);
+      if (raw) {
+        hit = JSON.parse(raw).v;
+        if (typeof hit === 'string') { translateCache.set(key, hit); return hit; }
+      }
+    } catch (e) { /* storage blocked */ }
+    return '';
+  }
+
+  function writeCache(key, value) {
+    translateCache.set(key, value);
+    try { localStorage.setItem('xshare-tr-' + key, JSON.stringify({ v: value })); }
+    catch (e) { /* storage blocked or full */ }
+  }
+
+  async function translateViaMyMemory(text, from, to) {
+    const url = MYMEMORY + '?q=' + encodeURIComponent(text) +
+      '&langpair=' + encodeURIComponent(apiLang(from) + '|' + apiLang(to));
+    const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const json = await res.json();
+    if (json.quotaFinished) throw new Error(t('toastTranslateQuota'));
+    if (Number(json.responseStatus) !== 200) {
+      throw new Error(json.responseDetails || 'translation failed');
+    }
+    const value = json.responseData && json.responseData.translatedText;
+    if (typeof value !== 'string' || !value.trim()) throw new Error('empty translation');
+    return decodeEntities(value);
+  }
+
+  async function translateViaGoogle(text, from, to) {
+    const url = GOOGLE_TRANSLATE + '&sl=' + encodeURIComponent(from) +
+      '&tl=' + encodeURIComponent(apiLang(to)) + '&dt=t&q=' + encodeURIComponent(text);
+    const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const json = await res.json();
+    const value = (json[0] || []).map((part) => part[0] || '').join('');
+    if (!value.trim()) throw new Error('empty translation');
+    return decodeEntities(value);
+  }
+
+  async function translateText(text, from, to) {
+    const key = cacheKey(from, to, text);
+    const hit = readCache(key);
+    if (hit) return hit;
+    let value;
+    try {
+      const chunks = splitForTranslation(text);
+      const pieces = [];
+      for (const chunk of chunks) pieces.push(await translateViaMyMemory(chunk, from, to));
+      value = pieces.join('');
+    } catch (err) {
+      console.warn('MyMemory failed, falling back to Google:', err);
+      value = await translateViaGoogle(text, from, to);
+    }
+    if (value.trim()) writeCache(key, value);
+    return value;
+  }
 
   function trimNum(n) {
     return n.toFixed(1).replace(/\.0$/, '');
@@ -443,6 +617,68 @@
     if (last < str.length) el.appendChild(document.createTextNode(str.slice(last)));
   }
 
+  /* The button lives inside the card but carries data-html2canvas-ignore, so
+     it is a preview-only control. The translation block below it is exported
+     together with the original text. */
+  function setupTranslate(opts) {
+    const from = detectLang(opts.text, opts.lang);
+    const to = targetLang();
+    const rec = { text: String(opts.text || ''), from, to, shown: false, busy: false, value: '', opts };
+    opts.record = rec;
+    const label = opts.btn.querySelector('span');
+
+    if (!rec.text.trim() || from === to) {
+      opts.btn.hidden = true;
+      return rec;
+    }
+    opts.btn.hidden = false;
+    label.textContent = t('translatePost');
+    opts.btn.title = t('translatePrivacy');
+    opts.btn.addEventListener('click', () => {
+      if (rec.shown) hideTranslation(rec);
+      else showTranslation(rec).catch((err) => {
+        console.error(err);
+        toast(t('toastTranslateFail') + (err.message || err), 'error');
+      });
+    });
+    return rec;
+  }
+
+  function hideTranslation(rec) {
+    rec.shown = false;
+    rec.opts.out.hidden = true;
+    rec.opts.textEl.style.marginBottom = '';
+    rec.opts.btn.querySelector('span').textContent = t('translatePost');
+    requestAnimationFrame(applyRatio);
+  }
+
+  async function showTranslation(rec) {
+    const o = rec.opts;
+    if (rec.busy) return;
+    if (!rec.value) {
+      rec.busy = true;
+      o.btn.disabled = true;
+      o.btn.querySelector('span').textContent = t('translating');
+      try {
+        rec.value = await translateText(rec.text, rec.from, rec.to);
+      } catch (err) {
+        o.btn.querySelector('span').textContent = t('translatePost');
+        throw err;
+      } finally {
+        rec.busy = false;
+        o.btn.disabled = false;
+      }
+      const label = o.out.querySelector('.card__translation-label');
+      label.textContent = t('translatedFrom').replace('{lang}', langName(rec.from)) + ' · ' + t('machineTranslation');
+      renderRichText(o.out.querySelector('.card__translation-text'), rec.value);
+    }
+    rec.shown = true;
+    o.out.hidden = false;
+    o.textEl.style.marginBottom = '4px';
+    o.btn.querySelector('span').textContent = t('hideTranslation');
+    requestAnimationFrame(applyRatio);
+  }
+
   function setCount(card, cls, value) {
     const el = card.querySelector(cls);
     if (el) el.textContent = fmtCount(value);
@@ -495,6 +731,15 @@
 
     renderRichText(card.querySelector('.card__text'), core.text || '');
 
+    card.__translates = {};
+    card.__translates.main = setupTranslate({
+      btn: card.querySelector('.card__translate:not(.card__quote-translate)'),
+      out: card.querySelector('.card__translation:not(.card__quote-translation)'),
+      textEl: card.querySelector('.card__text'),
+      text: core.text || '',
+      lang: core.lang || tweet.lang
+    });
+
     if (core.quote) {
       const q = core.quote;
       const qa = q.author || {};
@@ -502,6 +747,13 @@
       card.querySelector('.card__quote-name').textContent = qa.name || '—';
       card.querySelector('.card__quote-handle').textContent = '@' + (qa.screen_name || '');
       renderRichText(card.querySelector('.card__quote-text'), q.text || '');
+      card.__translates.quote = setupTranslate({
+        btn: card.querySelector('.card__quote-translate'),
+        out: card.querySelector('.card__quote-translation'),
+        textEl: card.querySelector('.card__quote-text'),
+        text: q.text || '',
+        lang: q.lang
+      });
       const qd = fmtShortDate(q.created_at);
       if (qd) card.querySelector('.card__quote-time').textContent = qd;
       else {
@@ -818,12 +1070,21 @@
 
   function present(tweet, isDemo) {
     clearCapture();
-    const { core } = mountTweet(tweet);
+    const { card, core } = mountTweet(tweet);
     state.root = tweet;
     ensureWatermark();
     showPlate(tweet, core);
     if (isDemo) toast(t('toastFallback'), 'info');
     else toast(t('toastSuccess'), 'success');
+    if (state.autoTranslate && card && card.__translates && card.__translates.main) {
+      const rec = card.__translates.main;
+      if (rec.from !== rec.to) {
+        showTranslation(rec).catch((err) => {
+          console.error(err);
+          toast(t('toastTranslateFail') + (err.message || err), 'error');
+        });
+      }
+    }
   }
 
   function loadDemo() {
@@ -1021,6 +1282,17 @@
         return PROXY;
       },
       getProxy: () => PROXY,
+      translate: (scope) => {
+        const card = dom.capture.querySelector('.card');
+        const rec = card && card.__translates && card.__translates[scope || 'main'];
+        if (!rec || rec.from === rec.to) return Promise.resolve(null);
+        return showTranslation(rec).then(() => rec.value);
+      },
+      hideTranslation: (scope) => {
+        const card = dom.capture.querySelector('.card');
+        const rec = card && card.__translates && card.__translates[scope || 'main'];
+        if (rec) hideTranslation(rec);
+      },
       state
     };
 
@@ -1034,6 +1306,7 @@
     if (q.get('layout')) window.XShare.setLayout(q.get('layout'));
     if (q.get('ratio') && q.get('ratio') !== 'auto') window.XShare.setRatio(q.get('ratio'));
     if (q.get('corners') === 'square') window.XShare.setCorners('square');
+    state.autoTranslate = q.get('translate') === '1';
     const deep = q.get('url');
     if (deep) {
       dom.urlInput.value = deep;

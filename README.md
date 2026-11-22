@@ -4,7 +4,7 @@
 
 在线使用：https://springculture.github.io/XShare/
 
-纯静态页面，没有构建步骤、没有框架、没有服务端依赖；取数和渲染都在浏览器里完成，内容不上传。
+纯静态页面，没有构建步骤、没有框架、没有服务端依赖；取数和渲染都在浏览器里完成。除主动点击翻译外，内容不上传。
 
 ## 能做什么
 
@@ -15,6 +15,9 @@
   - `强制网格 · 一律裁切` — 无论图片比例如何都保持 X 原生网格，长图按原生方式裁切
   - `强制纵向 · 一律完整` — 所有图片都按原始比例完整展开
   - 图片按 `contain` 等比绘制，超长图不会被截掉底部；引用推内的长图会等比缩小到 900px 高以保持嵌套卡片紧凑，仍完整不裁切
+- **翻译**：自动识别非界面语言的推文并显示「翻译帖子」按钮（依据 FxTwitter 的 `lang` 字段，缺失时按文字特征判断）；点击后原文与译文一起显示在卡片里，一起进入 PNG。引用推若也是外文，有独立的翻译按钮。按钮本身不出现在导出图中
+  - 译文标注「译自 XX · 机器翻译」，可再次点击隐藏；界面为中文时译成中文，其余界面译成英文
+  - 翻译走免密钥的 MyMemory 公共接口（失败回退 Google 公共端点），结果缓存在浏览器本地以节省额度；只有点击翻译时才会把正文发给翻译服务
 - 三档主题：亮色 `#FFFFFF`、暗蓝 Dim `#15202B`、纯黑 `#000000`
 - 导出透明背景 PNG，1× / 2× / 3× / 4×（2× = 1196px 宽）；可复制到剪贴板，⌘/Ctrl + S 也能下载
 - 3:4 / 9:16 竖版、直角模式、完整时间戳、Grok / ⋯ 菜单、互动数据、水印等开关
@@ -41,9 +44,10 @@ node serve.js 8080
 | `?layout=auto` / `?layout=grid` / `?layout=stack` | 多图布局（旧值 `waterfall` 等同 `stack`） |
 | `?ratio=3:4` / `?ratio=9:16` | 竖版比例 |
 | `?corners=square` | 直角卡片 |
+| `?translate=1` | 生成后自动翻译外文推文（同语言跳过） |
 | `?proxy=<编码后的前缀>` | 更换图片代理前缀（仅本次生效）；`?proxy=none` 关闭代理回退 |
 
-脚本接口：`window.XShare.generate(url)`、`render()`、`download()`、`copyImage()`、`loadDemo()`、`setTheme()`、`setLayout()`、`setRatio()`、`setCorners()`、`setProxy()` / `getProxy()`。
+脚本接口：`window.XShare.generate(url)`、`render()`、`download()`、`copyImage()`、`loadDemo()`、`setTheme()`、`setLayout()`、`setRatio()`、`setCorners()`、`setProxy()` / `getProxy()`、`translate(scope)` / `hideTranslation(scope)`（`scope` 为 `main` 或 `quote`）。
 
 长图会让卡片变得很高。导出时会按画布上限（边长 14000px / 面积 6000 万像素）自动下调倍率，避免浏览器拒绝创建 canvas；此时页面会给出提示。若需要固定倍率，可换用 `堆叠` 之外的布局或降低导出尺寸。
 
@@ -61,3 +65,4 @@ GitHub Pages：把本目录推到仓库的 `main` 分支，在 Settings → Page
 - 生成图是重绘的卡片，不是真实截图。
 - 数据来自非官方公开接口：保护账号、已删除推文无法获取；接口变动会影响可用性。
 - 跨域图片进入 canvas 需要 CORS；直连失败时页面会自动尝试公共代理，也可用 `?proxy=` 指向自己的代理。代理必须返回 `Access-Control-Allow-Origin: *`，否则导出会丢图。
+- 翻译依赖公共免密钥接口，匿名额度约 5000 字符/天（同一 IP 共享），单次请求上限约 500 字节，长文会自动分块；额度耗尽时页面会提示。译文仅供参考，机器翻译不保证准确。
